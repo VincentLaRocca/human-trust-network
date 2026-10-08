@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Asset-view split after one confirmed spend signed by a hub.
 
-Every observer sees the same proposal. Objective require passes. The anchor
-proof is confirmed. max_path then decides whether that observer moves title.
-
-This is not the Sybil-behind-a-bridge experiment. The signed key is the hub.
-The 0.09 leakage figure does not apply.
+Every observer sees the same proposal. require passes. The anchor proof is
+confirmed. consider() then either advances the local title or marks the seal
+spent and leaves the pointer. This file does not claim a quarantine.
 """
 
 from __future__ import annotations
@@ -13,7 +11,8 @@ from __future__ import annotations
 import math
 import random
 
-from max_path import Edge, Neighborhood, Policy, accepts
+from client_observer import AnchorProof, LocalView, Outcome, Proposal, consider
+from max_path import Edge, Neighborhood
 
 
 def barabasi(n: int, mean_degree: int, rng: random.Random) -> list[dict[int, float]]:
@@ -75,25 +74,48 @@ def neighborhood(adj: list[dict[int, float]], observer: int) -> Neighborhood:
 
 
 def split(n: int = 80, runs: int = 20, seed: int = 1000) -> dict[str, float]:
-    policy = Policy()
-    advanced = frozen = 0
+    if n > 256:
+        raise SystemExit("node ids are one byte")
+    title = bytes([7]) * 32
+    nxt = bytes([8]) * 32
+    op = bytes([9]) * 32
+    bundle = bytes([4]) * 32
+    prev = bytes([3]) * 32
+    proof = AnchorProof(bytes([1]) * 32, 0, prev, 1, bundle, True)
+    advanced = frozen = other = 0
     observers = 0
     for run in range(runs):
         rng = random.Random(seed + run)
         adj = barabasi(n, 6, rng)
         hub = max(range(n), key=lambda i: eigenvector(adj)[i])
+        hub_key = bytes([hub])
+
+        def require(op_id: bytes, sigs: dict[bytes, bytes], hub_key: bytes = hub_key) -> None:
+            if op_id != op or set(sigs) != {hub_key}:
+                raise RuntimeError("bad witness")
+
+        proposal = Proposal(title, nxt, b"hub-signed", op, {hub_key: b"\x11" * 64}, bundle, prev, 1, proof)
         for observer in range(n):
             if observer == hub:
                 continue
             observers += 1
-            ok, _ = accepts(neighborhood(adj, observer), bytes([observer]), bytes([hub]), policy)
-            if ok:
+            view = LocalView(title)
+            outcome, _ = consider(view, proposal, require, neighborhood(adj, observer), bytes([observer]))
+            if outcome is Outcome.ADVANCED:
                 advanced += 1
-            else:
+                if view.title_seal != nxt or title not in view.spent:
+                    raise SystemExit("advanced without moving the pointer")
+            elif outcome is Outcome.SPENT_UNADVANCED:
                 frozen += 1
+                if view.title_seal != title or title not in view.spent:
+                    raise SystemExit("spent-unadvanced did not hold the pointer")
+            else:
+                other += 1
+    if other:
+        raise SystemExit("objective or anchor gate failed")
     return {
         "advanced": advanced / observers,
-        "frozen": frozen / observers,
+        "spent_unadvanced": frozen / observers,
         "observers": float(observers),
     }
 
@@ -101,7 +123,7 @@ def split(n: int = 80, runs: int = 20, seed: int = 1000) -> dict[str, float]:
 def demo() -> None:
     result = split()
     print(f"advanced {result['advanced']:.3f}")
-    print(f"frozen {result['frozen']:.3f}")
+    print(f"spent_unadvanced {result['spent_unadvanced']:.3f}")
     print(f"observers {int(result['observers'])}")
     if not 0.2 < result["advanced"] < 0.8:
         raise SystemExit("split collapsed; check the weight model")
