@@ -8,7 +8,7 @@ broadcast a transaction. A failed query does not return an AnchorProof.
 
 A cold advance also needs the witness on that input. The script is the leaf
 item. The control block is the next item. An annex, if present, is last and
-starts with 0x50.
+starts with 0x50. A key-path check is separate and is not the default.
 """
 
 from __future__ import annotations
@@ -78,16 +78,18 @@ def leaf_and_control(items: list[bytes]) -> tuple[bytes, bytes]:
     return script, control
 
 
-def witness_lock(tx: dict, spent_txid: str, spent_vout: int, script: bytes | None = None) -> WitnessLock:
+def witness_lock(tx: dict, spent_txid: str, spent_vout: int, script: bytes | None = None, key_path: bool = False) -> WitnessLock:
     items = stack(spending_input(tx, spent_txid, spent_vout))
-    if script is None:
+    if script is not None:
+        revealed, control = leaf_and_control(items)
+        if revealed != script:
+            raise AnchorMiss("witness script is not the revealed cold script")
+        return WitnessLock("script", revealed, control)
+    if key_path:
         if len(items) != 1 or len(items[0]) not in (64, 65):
             raise AnchorMiss("key-path witness is not one Schnorr signature")
         return WitnessLock("key", b"", b"")
-    revealed, control = leaf_and_control(items)
-    if revealed != script:
-        raise AnchorMiss("witness script is not the revealed cold script")
-    return WitnessLock("script", revealed, control)
+    return WitnessLock("unchecked", b"", b"")
 
 
 def fetch_anchor(
@@ -100,6 +102,7 @@ def fetch_anchor(
     bundle: bytes,
     min_conf: int = 1,
     script: bytes | None = None,
+    key_path: bool = False,
 ) -> tuple[AnchorProof, WitnessLock]:
     if len(bundle) != 32 or len(bytes.fromhex(spent_txid)) != 32 or len(bytes.fromhex(spending_txid)) != 32:
         raise Reject("anchor id")
@@ -110,7 +113,7 @@ def fetch_anchor(
         raise AnchorMiss("spend is not confirmed")
     if not carries_bundle(tx, bundle):
         raise AnchorMiss("bundle not in the spending transaction")
-    lock = witness_lock(tx, spent_txid, spent_vout, script)
+    lock = witness_lock(tx, spent_txid, spent_vout, script, key_path)
     proof = AnchorProof(
         bytes.fromhex(spending_txid),
         0,
