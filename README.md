@@ -26,6 +26,8 @@ A confirmed seal close is global. `transfer()` either has the signatures or it d
 
 A failed `weigh()` does not drop the edge. Stress test: after `SPENT_UNADVANCED`, this client should delete its edge to every signer that missed the threshold. That cut is not implemented. The closed seal stays closed.
 
+Next step is a local regtest node, not another case. `live_bifurcation.py` has not been run. It needs `HTN_ANCHOR_SECRET` and a reachable bitcoind. No script-path spend is signed here.
+
 A key is not a person. A close proves that a seal was spent and that the consignment commits to that spend. It does not prove the item is genuine.
 
 ## Three layers
