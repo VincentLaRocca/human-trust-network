@@ -20,6 +20,8 @@ The first schema is a custody handoff. Copyright and agent identity are not in t
 
 `btc-root/operator_cold_leaf.py` is separate. A rotation must still commit to the genesis cold leaf. The cold key can spend the control output at any time. There is no delay and no CSV window. The confirmed spend wins. The encoder does not check that Taproot leaf.
 
+`human-witness/max_path.py` scores witness keys from the observer's neighborhood. The score is the strongest chain, hop limit at most 2, default threshold 0.45. It does not sum paths and it does not apply a degree penalty. A client does not need the global graph.
+
 A key is not a person. A close proves that a seal was spent and that the consignment commits to that spend. It does not prove the item is genuine.
 
 ## Three layers
