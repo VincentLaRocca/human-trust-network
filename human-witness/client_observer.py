@@ -9,10 +9,10 @@ The consignment is shared. Epistemic weight is not. Gates run in order:
    outpoint and committed the bundle. This module does not talk to a node.
 3. Local score. max_path.weigh on the observer's neighborhood.
 
-A script-path recovery is a different first gate. The client must already hold
-the genesis cold leaf. The revealed script must hash to that leaf. weigh() is
-not called. This module does not read the transaction witness, so the anchor
-does not prove the script was revealed on chain.
+A script-path recovery skips weigh(). The client must already hold the genesis
+cold leaf, the revealed script must hash to it, and the witness lock must say
+that script was the leaf item on the spending input. The lock is produced by
+the regtest query. This module does not query a node.
 
 If 1 and 2 pass and 3 fails, the L1 output is marked spent and the title pointer
 stays on the previous seal. Bitcoin does not unspend the output.
@@ -62,11 +62,19 @@ class AnchorProof:
 
 
 @dataclass(frozen=True)
+class WitnessLock:
+    kind: str
+    script: bytes
+    control: bytes
+
+
+@dataclass(frozen=True)
 class ScriptPath:
-    """Revealed cold script plus the leaf this client already stored."""
+    """Revealed cold script, the stored leaf, and the input witness lock."""
 
     script: bytes
     genesis_cold_leaf: bytes
+    witness: WitnessLock | None = None
 
 
 @dataclass(frozen=True)
@@ -112,16 +120,21 @@ def objective(view: LocalView, proposal: Proposal, require) -> None:
 
 
 def cold_objective(view: LocalView, proposal: Proposal) -> None:
-    if proposal.script_path is None:
-        raise Reject("not a script path")
+    path = proposal.script_path
+    if path is None or path.witness is None:
+        raise Reject("script path has no witness lock")
+    if path.witness.kind != "script" or path.witness.script != path.script:
+        raise Reject("witness is not this cold script")
+    if not path.witness.control or path.witness.control[0] & 0xFE != 0xC0:
+        raise Reject("control block")
     if proposal.spent_seal != view.title_seal:
         raise Reject("spend is not the current seal")
     if proposal.new_seal == proposal.spent_seal:
         raise Reject("reopen must be a new seal")
     if len(proposal.op_id) != 32 or len(proposal.expected_bundle) != 32:
         raise Reject("op id")
-    leaf = proposal.script_path.genesis_cold_leaf
-    if len(leaf) != 32 or cold_leaf_hash(proposal.script_path.script) != leaf:
+    leaf = path.genesis_cold_leaf
+    if len(leaf) != 32 or cold_leaf_hash(path.script) != leaf:
         raise Reject("revealed script is not the genesis cold leaf")
 
 
@@ -202,12 +215,14 @@ def demo() -> None:
 
     script = b"\x20" + bytes([5]) * 32 + b"\xac"
     leaf = cold_leaf_hash(script)
-    cold = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, leaf))
+    control = bytes([0xC0]) + bytes([9]) * 32
+    lock = WitnessLock("script", script, control)
+    cold = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, leaf, lock))
     cold_view = LocalView(title)
     outcome, _ = consider(cold_view, cold, require, Neighborhood([]), observer)
     assert outcome is Outcome.ADVANCED and cold_view.title_seal == nxt, outcome
-    wrong = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, bytes([1]) * 32))
-    outcome, _ = consider(LocalView(title), wrong, require, Neighborhood([]), observer)
+    unlocked = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, leaf))
+    outcome, _ = consider(LocalView(title), unlocked, require, Neighborhood([]), observer)
     assert outcome is Outcome.GARBAGE
     print("client observer ok")
 
