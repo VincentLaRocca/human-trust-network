@@ -9,15 +9,26 @@ The consignment is shared. Epistemic weight is not. Gates run in order:
    outpoint and committed the bundle. This module does not talk to a node.
 3. Local score. max_path.weigh on the observer's neighborhood.
 
+A script-path recovery is a different first gate. The client must already hold
+the genesis cold leaf. The revealed script must hash to that leaf. weigh() is
+not called. This module does not read the transaction witness, so the anchor
+does not prove the script was revealed on chain.
+
 If 1 and 2 pass and 3 fails, the L1 output is marked spent and the title pointer
 stays on the previous seal. Bitcoin does not unspend the output.
 """
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "btc-root"))
+
+from operator_cold_leaf import cold_leaf_hash  # noqa: E402
 from max_path import Edge, Neighborhood, Policy, weigh
 
 
@@ -51,6 +62,14 @@ class AnchorProof:
 
 
 @dataclass(frozen=True)
+class ScriptPath:
+    """Revealed cold script plus the leaf this client already stored."""
+
+    script: bytes
+    genesis_cold_leaf: bytes
+
+
+@dataclass(frozen=True)
 class Proposal:
     spent_seal: bytes
     new_seal: bytes
@@ -61,6 +80,7 @@ class Proposal:
     spent_txid: bytes
     spent_vout: int
     anchor: AnchorProof | None
+    script_path: ScriptPath | None = None
 
 
 @dataclass
@@ -91,6 +111,20 @@ def objective(view: LocalView, proposal: Proposal, require) -> None:
     require(proposal.op_id, proposal.sigs)
 
 
+def cold_objective(view: LocalView, proposal: Proposal) -> None:
+    if proposal.script_path is None:
+        raise Reject("not a script path")
+    if proposal.spent_seal != view.title_seal:
+        raise Reject("spend is not the current seal")
+    if proposal.new_seal == proposal.spent_seal:
+        raise Reject("reopen must be a new seal")
+    if len(proposal.op_id) != 32 or len(proposal.expected_bundle) != 32:
+        raise Reject("op id")
+    leaf = proposal.script_path.genesis_cold_leaf
+    if len(leaf) != 32 or cold_leaf_hash(proposal.script_path.script) != leaf:
+        raise Reject("revealed script is not the genesis cold leaf")
+
+
 def anchor_ok(proposal: Proposal) -> bool:
     proof = proposal.anchor
     if proof is None or not proof.confirmed:
@@ -109,6 +143,15 @@ def consider(
     policy: Policy | None = None,
 ) -> tuple[Outcome, str]:
     policy = policy or Policy()
+    if proposal.script_path is not None:
+        try:
+            cold_objective(view, proposal)
+        except Reject as exc:
+            return Outcome.GARBAGE, str(exc)
+        if not anchor_ok(proposal):
+            return Outcome.UNANCHORED, "anchor does not match the bundle or the spent outpoint"
+        view.advance(proposal.new_seal, proposal.op_id)
+        return Outcome.ADVANCED, "cold leaf moved the title"
     try:
         objective(view, proposal, require)
     except Reject as exc:
@@ -156,6 +199,16 @@ def demo() -> None:
     unanchored = Proposal(title, nxt, b"", op, {notary: b"\x11" * 64}, bundle, prev, 1, None)
     outcome, _ = consider(LocalView(title), unanchored, require, neigh, observer)
     assert outcome is Outcome.UNANCHORED
+
+    script = b"\x20" + bytes([5]) * 32 + b"\xac"
+    leaf = cold_leaf_hash(script)
+    cold = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, leaf))
+    cold_view = LocalView(title)
+    outcome, _ = consider(cold_view, cold, require, Neighborhood([]), observer)
+    assert outcome is Outcome.ADVANCED and cold_view.title_seal == nxt, outcome
+    wrong = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, bytes([1]) * 32))
+    outcome, _ = consider(LocalView(title), wrong, require, Neighborhood([]), observer)
+    assert outcome is Outcome.GARBAGE
     print("client observer ok")
 
 
