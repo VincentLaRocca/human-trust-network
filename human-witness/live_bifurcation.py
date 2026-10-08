@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """One confirmed regtest close, then the local tally.
 
-builder broadcasts the spend. fetch_anchor must accept it. live_require checks
-one real BIP-340 signature over the operation id. consider() then advances or
-holds each local pointer.
+The WIF that signs the Bitcoin input is the witness key. live_require checks
+that key's BIP-340 signature over the operation id. Edges that touched the
+hub's graph id are rewritten to that same x-only key, which is what weigh
+scores. The graph id is an index, not a second identity.
 
-The split is still the Barabasi-Albert weight model. A confirmed transaction
-is the same proposal for every observer. This script does not prove a rate.
+The Bitcoin signature and the operation-id signature are different messages.
+The split is still the weight model. This script does not prove a rate.
 """
 
 from __future__ import annotations
@@ -30,6 +31,41 @@ from schema_encoder import PrivateKey, WitnessSet  # noqa: E402
 
 from bifurcation import barabasi, eigenvector, neighborhood  # noqa: E402
 
+B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+class IdentityRegistry:
+    def __init__(self) -> None:
+        self.graph_to_key: dict[int, bytes] = {}
+        self.key_to_graph: dict[bytes, int] = {}
+
+    def bind(self, graph_id: int, xonly: bytes) -> None:
+        if graph_id in self.graph_to_key or xonly in self.key_to_graph:
+            raise SystemExit("identity already bound")
+        self.graph_to_key[graph_id] = xonly
+        self.key_to_graph[xonly] = graph_id
+
+
+def wif_secret(wif: str) -> bytes:
+    n = 0
+    for char in wif:
+        n = n * 58 + B58.index(char)
+    raw = n.to_bytes(38, "big").lstrip(b"\x00")
+    pad = 0
+    for char in wif:
+        if char != "1":
+            break
+        pad += 1
+    raw = b"\x00" * pad + raw
+    if hashlib.sha256(hashlib.sha256(raw[:-4]).digest()).digest()[:4] != raw[-4:]:
+        raise SystemExit("bad wif checksum")
+    body = raw[:-4]
+    if body[0] != 0xEF:
+        raise SystemExit("refusing a non-regtest WIF")
+    if len(body) != 34 or body[-1] != 1:
+        raise SystemExit("compressed regtest WIF required")
+    return body[1:33]
+
 
 def hub_neighborhood(adj, observer: int, hub: int, hub_key: bytes) -> Neighborhood:
     edges = []
@@ -49,18 +85,21 @@ def run(args: argparse.Namespace) -> dict[str, float]:
         args.txid, args.vout, args.dest, args.amount, args.bundle, args.wif, args.mine_to,
     )
     proof = fetch_anchor(args.url, args.user, args.password, args.txid, args.vout, spending, bundle)
-    secret = hashlib.sha256(b"regtest-hub-witness").digest()
-    key = PrivateKey(secret)
+    key = PrivateKey(wif_secret(args.wif))
     witnesses = WitnessSet(1, (key.sec(),))
     op = hashlib.sha256(b"live-op").digest()
     sig = key.schnorr_sign(op).serialize()
     hub_key = key.xonly()
     require = live_require(witnesses)
+    adj = barabasi(args.nodes, 6, __import__("random").Random(args.seed))
+    hub = max(range(args.nodes), key=lambda i: eigenvector(adj)[i])
+    registry = IdentityRegistry()
+    registry.bind(hub, hub_key)
+    if registry.key_to_graph[hub_key] != hub:
+        raise SystemExit("witness key is not the hub")
     title = bytes([7]) * 32
     nxt = bytes([8]) * 32
     proposal = Proposal(title, nxt, b"live", op, {hub_key: sig}, bundle, bytes.fromhex(args.txid), args.vout, proof)
-    adj = barabasi(args.nodes, 6, __import__("random").Random(args.seed))
-    hub = max(range(args.nodes), key=lambda i: eigenvector(adj)[i])
     advanced = frozen = other = 0
     for observer in range(args.nodes):
         if observer == hub:
