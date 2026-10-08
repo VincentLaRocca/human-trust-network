@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Regtest query for a seal close.
 
-Asks a local bitcoind whether the outpoint is spent, the spending transaction
-is confirmed, and some output commits to the expected bundle. This file does
-not build or broadcast a transaction. The Core regtest builder is not in this
-tree. A failed query does not return an AnchorProof.
+Asks a local bitcoind whether a known spending transaction spends the outpoint,
+is confirmed, and carries the expected bundle. gettxout does not name the
+spender, so the spending txid is an argument. This file does not build or
+broadcast a transaction. The Core regtest builder is not in this tree. A
+failed query does not return an AnchorProof.
 """
 
 from __future__ import annotations
@@ -42,29 +43,12 @@ def carries_bundle(tx: dict, bundle: bytes) -> bool:
     needle = bundle.hex()
     for vout in tx.get("vout", []):
         script = vout.get("scriptPubKey", {})
-        asm = script.get("asm", "")
-        hexscript = script.get("hex", "")
-        if needle in asm or needle in hexscript:
+        if needle in script.get("asm", "") or needle in script.get("hex", ""):
             return True
     return False
 
 
-def fetch_anchor(url: str, user: str, password: str, spent_txid: str, spent_vout: int, bundle: bytes) -> AnchorProof:
-    if len(bundle) != 32:
-        raise Reject("bundle")
-    if rpc(url, user, password, "gettxout", [spent_txid, spent_vout]) is not None:
-        raise AnchorMiss("outpoint still unspent")
-    tx = rpc(url, user, password, "getrawtransaction", [spent_txid, True])
-    spending = None
-    for vin_tx in (spent_txid,):
-        del vin_tx
-    # getrawtransaction on the spent tx does not name the spender. Ask for the
-    # spending txid from the caller via gettxout emptiness, then search mempool
-    # is not enough: a confirmed close must be supplied as the spending txid.
-    raise AnchorMiss("spending txid is required; gettxout only proves absence")
-
-
-def fetch_anchor_spent_by(
+def fetch_anchor(
     url: str,
     user: str,
     password: str,
@@ -74,7 +58,6 @@ def fetch_anchor_spent_by(
     bundle: bytes,
     min_conf: int = 1,
 ) -> AnchorProof:
-    """Confirm a known spending txid. bitcoind does not return the spender from gettxout."""
     if len(bundle) != 32 or len(bytes.fromhex(spent_txid)) != 32 or len(bytes.fromhex(spending_txid)) != 32:
         raise Reject("anchor id")
     if rpc(url, user, password, "gettxout", [spent_txid, spent_vout]) is not None:
@@ -86,8 +69,7 @@ def fetch_anchor_spent_by(
     )
     if not spends:
         raise AnchorMiss("transaction does not spend the outpoint")
-    conf = int(tx.get("confirmations") or 0)
-    if conf < min_conf:
+    if int(tx.get("confirmations") or 0) < min_conf:
         raise AnchorMiss("spend is not confirmed")
     if not carries_bundle(tx, bundle):
         raise AnchorMiss("bundle not in the spending transaction")
