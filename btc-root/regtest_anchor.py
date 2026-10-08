@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Regtest query for a seal close.
 
-A cold lock is minted here from txinwitness on the input that spends the seal.
-The proposal does not mint it. An annex starting with 0x50 is skipped. The
-script is the item before the control block.
+The witness lock is built only inside fetch_anchor, after the node response.
+There is no mint function to import. Parsing a witness stack does not mint.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "human-witness"))
 
-from client_observer import AnchorProof, Reject, WitnessLock, mint_lock  # noqa: E402
+from client_observer import AnchorProof, Reject, WitnessLock  # noqa: E402
 
 
 class AnchorMiss(Exception):
@@ -73,48 +72,59 @@ def leaf_and_control(items: list[bytes]) -> tuple[bytes, bytes]:
     return script, control
 
 
-def witness_lock(tx: dict, spent_txid: str, spent_vout: int, script: bytes | None = None, key_path: bool = False) -> WitnessLock:
+def parsed_witness(tx: dict, spent_txid: str, spent_vout: int, script: bytes | None = None, key_path: bool = False) -> tuple[str, bytes, bytes]:
     items = stack(spending_input(tx, spent_txid, spent_vout))
     if script is not None:
         revealed, control = leaf_and_control(items)
         if revealed != script:
             raise AnchorMiss("witness script is not the revealed cold script")
-        return mint_lock("script", revealed, control)
+        return "script", revealed, control
     if key_path:
         if len(items) != 1 or len(items[0]) not in (64, 65):
             raise AnchorMiss("key-path witness is not one Schnorr signature")
-        return mint_lock("key", b"", b"")
-    return mint_lock("unchecked", b"", b"")
+        return "key", b"", b""
+    return "unchecked", b"", b""
 
 
-def fetch_anchor(
-    url: str,
-    user: str,
-    password: str,
-    spent_txid: str,
-    spent_vout: int,
-    spending_txid: str,
-    bundle: bytes,
-    min_conf: int = 1,
-    script: bytes | None = None,
-    key_path: bool = False,
-) -> tuple[AnchorProof, WitnessLock]:
-    if len(bundle) != 32 or len(bytes.fromhex(spent_txid)) != 32 or len(bytes.fromhex(spending_txid)) != 32:
-        raise Reject("anchor id")
-    if rpc(url, user, password, "gettxout", [spent_txid, spent_vout]) is not None:
-        raise AnchorMiss("outpoint still unspent")
-    tx = rpc(url, user, password, "getrawtransaction", [spending_txid, True])
-    if int(tx.get("confirmations") or 0) < min_conf:
-        raise AnchorMiss("spend is not confirmed")
-    if not carries_bundle(tx, bundle):
-        raise AnchorMiss("bundle not in the spending transaction")
-    lock = witness_lock(tx, spent_txid, spent_vout, script, key_path)
-    proof = AnchorProof(
-        bytes.fromhex(spending_txid),
-        0,
-        bytes.fromhex(spent_txid),
-        spent_vout,
-        bundle,
-        True,
-    )
-    return proof, lock
+def _bind():
+    token = object()
+
+    def accepted(lock: WitnessLock | None) -> bool:
+        return lock is not None and lock.mint is token
+
+    def fetch_anchor(
+        url: str,
+        user: str,
+        password: str,
+        spent_txid: str,
+        spent_vout: int,
+        spending_txid: str,
+        bundle: bytes,
+        min_conf: int = 1,
+        script: bytes | None = None,
+        key_path: bool = False,
+    ) -> tuple[AnchorProof, WitnessLock]:
+        if len(bundle) != 32 or len(bytes.fromhex(spent_txid)) != 32 or len(bytes.fromhex(spending_txid)) != 32:
+            raise Reject("anchor id")
+        if rpc(url, user, password, "gettxout", [spent_txid, spent_vout]) is not None:
+            raise AnchorMiss("outpoint still unspent")
+        tx = rpc(url, user, password, "getrawtransaction", [spending_txid, True])
+        if int(tx.get("confirmations") or 0) < min_conf:
+            raise AnchorMiss("spend is not confirmed")
+        if not carries_bundle(tx, bundle):
+            raise AnchorMiss("bundle not in the spending transaction")
+        kind, revealed, control = parsed_witness(tx, spent_txid, spent_vout, script, key_path)
+        proof = AnchorProof(
+            bytes.fromhex(spending_txid),
+            0,
+            bytes.fromhex(spent_txid),
+            spent_vout,
+            bundle,
+            True,
+        )
+        return proof, WitnessLock(kind, revealed, control, token)
+
+    return accepted, fetch_anchor
+
+
+accepted, fetch_anchor = _bind()

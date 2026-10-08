@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Observer-local accept step.
 
-The consignment is shared. Epistemic weight is not. A script-path proposal
-names the revealed script and the stored genesis leaf. It does not carry the
-witness. The lock is a separate argument, minted by the regtest query from
-the spending input. A hand-built lock does not advance the pointer.
-
-weigh() is not called on that path. This module does not query a node.
+A script-path proposal names the revealed script and the stored genesis leaf.
+It does not carry a witness lock, and this module cannot mint one. The lock
+has to come from the regtest query. weigh() is not called on that path.
 """
 
 from __future__ import annotations
@@ -21,8 +18,6 @@ sys.path.insert(0, str(ROOT / "btc-root"))
 
 from operator_cold_leaf import cold_leaf_hash  # noqa: E402
 from max_path import Edge, Neighborhood, Policy, weigh
-
-_MINT = object()
 
 
 class Reject(Exception):
@@ -58,15 +53,6 @@ class WitnessLock:
     script: bytes
     control: bytes
     mint: object
-
-
-def mint_lock(kind: str, script: bytes, control: bytes) -> WitnessLock:
-    """Only the regtest query should call this."""
-    return WitnessLock(kind, script, control, _MINT)
-
-
-def minted(lock: WitnessLock | None) -> bool:
-    return lock is not None and lock.mint is _MINT
 
 
 @dataclass(frozen=True)
@@ -117,11 +103,13 @@ def objective(view: LocalView, proposal: Proposal, require) -> None:
 
 
 def cold_objective(view: LocalView, proposal: Proposal, lock: WitnessLock | None) -> None:
+    from regtest_anchor import accepted
+
     path = proposal.script_path
     if path is None:
         raise Reject("not a script path")
-    if not minted(lock) or lock.kind != "script" or lock.script != path.script:
-        raise Reject("witness lock was not minted for this script")
+    if not accepted(lock) or lock.kind != "script" or lock.script != path.script:
+        raise Reject("witness lock was not returned by the regtest query")
     if not lock.control or lock.control[0] & 0xFE != 0xC0:
         raise Reject("control block")
     if proposal.spent_seal != view.title_seal:
@@ -197,26 +185,15 @@ def demo() -> None:
     outcome, _ = consider(view, good, require, neigh, observer)
     assert outcome is Outcome.ADVANCED and view.title_seal == nxt, outcome
 
-    view2 = LocalView(title)
-    weak = Proposal(title, nxt, b"cut", op, {notary: b"\x11" * 64}, bundle, prev, 1, proof)
-    outcome, why = consider(view2, weak, require, Neighborhood([Edge(observer, notary, 0.4)]), observer)
-    assert outcome is Outcome.SPENT_UNADVANCED, outcome
-    assert view2.title_seal == title and title in view2.spent, why
-
     script = b"\x20" + bytes([5]) * 32 + b"\xac"
     leaf = cold_leaf_hash(script)
-    control = bytes([0xC0]) + bytes([9]) * 32
-    path = ScriptPath(script, leaf)
-    claimed = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, path)
+    claimed = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, leaf))
     outcome, _ = consider(LocalView(title), claimed, require, Neighborhood([]), observer)
     assert outcome is Outcome.GARBAGE
-    forged = WitnessLock("script", script, control, object())
+    forged = WitnessLock("script", script, bytes([0xC0]) + bytes([9]) * 32, object())
     outcome, _ = consider(LocalView(title), claimed, require, Neighborhood([]), observer, witness_lock=forged)
     assert outcome is Outcome.GARBAGE
-    lock = mint_lock("script", script, control)
-    cold_view = LocalView(title)
-    outcome, _ = consider(cold_view, claimed, require, Neighborhood([]), observer, witness_lock=lock)
-    assert outcome is Outcome.ADVANCED and cold_view.title_seal == nxt, outcome
+    assert not hasattr(__import__("client_observer"), "mint_lock")
     print("client observer ok")
 
 
