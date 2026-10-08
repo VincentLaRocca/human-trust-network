@@ -5,6 +5,10 @@ A script-path proposal names the revealed script and the stored genesis leaf.
 It does not carry a witness lock, and this module cannot mint one. The lock
 has to come from the authenticated regtest query. weigh() is not called on
 that path.
+
+A failed weigh() does not drop the edge. Stress test should delete this
+client's edge to every signer that missed the threshold. Not implemented.
+The closed seal stays closed.
 """
 
 from __future__ import annotations
@@ -162,6 +166,8 @@ def consider(
     signed = list(proposal.sigs)
     verdict = weigh(neighborhood, observer, signed, policy)
     if not signed or not all(ok for ok, _ in verdict.values()):
+        # Stress test: delete this client's edge to each signer that missed
+        # the threshold. Not implemented. The neighborhood is unchanged.
         view.note_spent(proposal.spent_seal)
         return Outcome.SPENT_UNADVANCED, "title held; L1 output marked spent"
     view.advance(proposal.new_seal, proposal.op_id)
