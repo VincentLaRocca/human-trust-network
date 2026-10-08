@@ -24,6 +24,8 @@ The first schema is a custody handoff. Copyright and agent identity are not in t
 
 A confirmed seal close is global. `transfer()` either has the signatures or it does not. `weigh()` may then refuse to move this client's title pointer. Disagreement across clients is the policy, not a consensus failure. `human-witness/bifurcation.py` measures only that third step, and only for the hub's own key. The tally is `consider()`: `ADVANCED` against `SPENT_UNADVANCED`.
 
+A failed `weigh()` does not drop the edge. Stress test: after `SPENT_UNADVANCED`, this client should delete its edge to every signer that missed the threshold. That cut is not implemented. The closed seal stays closed.
+
 A key is not a person. A close proves that a seal was spent and that the consignment commits to that spend. It does not prove the item is genuine.
 
 ## Three layers
