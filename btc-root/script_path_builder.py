@@ -8,6 +8,11 @@ from a confirmed transaction's txinwitness. A stack built here is not a lock.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from operator_cold_leaf import build_control_seal, cold_leaf_hash, cold_script, pubkey_from_secret, sha256
 
 
