@@ -6,9 +6,10 @@ It does not carry a witness lock, and this module cannot mint one. The lock
 has to come from the authenticated regtest query. weigh() is not called on
 that path.
 
-A failed weigh() does not drop the edge. Stress test should delete this
-client's edge to every signer that missed the threshold. Not implemented.
-The closed seal stays closed.
+A failed weigh() cuts this client's edge to every signer that missed the
+threshold. If a sponsor bond names that signer, the edge to the sponsor and
+the introduction edge are cut too. The closed seal stays closed. The cut is
+local. It is not a global slash and it does not bind a key to a person.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ sys.path.insert(0, str(ROOT / "btc-root"))
 
 from operator_cold_leaf import cold_leaf_hash  # noqa: E402
 from max_path import Edge, Neighborhood, Policy, weigh
+from sponsor import SponsorBond, cut_misses
 
 
 class Reject(Exception):
@@ -146,6 +148,7 @@ def consider(
     observer: bytes,
     policy: Policy | None = None,
     witness_lock: WitnessLock | None = None,
+    bonds: list[SponsorBond] | None = None,
 ) -> tuple[Outcome, str]:
     policy = policy or Policy()
     if proposal.script_path is not None:
@@ -165,11 +168,11 @@ def consider(
         return Outcome.UNANCHORED, "anchor does not match the bundle or the spent outpoint"
     signed = list(proposal.sigs)
     verdict = weigh(neighborhood, observer, signed, policy)
-    if not signed or not all(ok for ok, _ in verdict.values()):
-        # Stress test: delete this client's edge to each signer that missed
-        # the threshold. Not implemented. The neighborhood is unchanged.
+    missed = {key for key, (ok, _) in verdict.items() if not ok}
+    if not signed or missed:
+        neighborhood.edges = cut_misses(neighborhood, observer, missed or set(signed), bonds or [])
         view.note_spent(proposal.spent_seal)
-        return Outcome.SPENT_UNADVANCED, "title held; L1 output marked spent"
+        return Outcome.SPENT_UNADVANCED, "title held; edges to missed signers and their sponsors cut"
     view.advance(proposal.new_seal, proposal.op_id)
     return Outcome.ADVANCED, "title moved"
 

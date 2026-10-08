@@ -10,4 +10,6 @@ No identity directory lives here. A key is not a person.
 
 `max_path.py` is the client-side score for witness keys already in a local neighborhood. It keeps the strongest chain only, hop limit 1 or 2, default threshold 0.45. It does not sum paths, penalize degree, or run a global max-flow.
 
-`client_observer.py` runs the gates in order. Signature and seal checks are shared. The anchor proof is supplied, not fetched. `max_path` is local. A failed score marks the seal spent and does not move the title pointer.
+`sponsor.py` pairs a node key with the key that introduced it. The bond is an edge. It does not raise the score. A miss cuts this client's edge to the signer, the edge to the sponsor, and the introduction edge. Other clients are unchanged.
+
+`client_observer.py` runs the gates in order. Signature and seal checks are shared. The anchor proof is supplied, not fetched. `max_path` is local. A failed score marks the seal spent, cuts the local sponsor edges, and does not move the title pointer.

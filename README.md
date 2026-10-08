@@ -24,7 +24,7 @@ The first schema is a custody handoff. Copyright and agent identity are not in t
 
 A confirmed seal close is global. `transfer()` either has the signatures or it does not. `weigh()` may then refuse to move this client's title pointer. Disagreement across clients is the policy, not a consensus failure. `human-witness/bifurcation.py` measures only that third step, and only for the hub's own key. The tally is `consider()`: `ADVANCED` against `SPENT_UNADVANCED`.
 
-A failed `weigh()` does not drop the edge. Stress test: after `SPENT_UNADVANCED`, this client should delete its edge to every signer that missed the threshold. That cut is not implemented. The closed seal stays closed.
+A failed `weigh()` cuts this client's edge to every signer that missed the threshold. If `sponsor.py` paired that signer with an introducer, the edge to the sponsor and the introduction edge are cut too. The cut is local. The closed seal stays closed. A bond is not an identity and it does not raise the score.
 
 Next step is a local regtest node, not another case. `live_bifurcation.py` has not been run. It needs `HTN_ANCHOR_SECRET` and a reachable bitcoind. No script-path spend is signed here.
 
