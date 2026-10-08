@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """Regtest query for a seal close.
 
-Asks a local bitcoind whether a known spending transaction spends the outpoint,
-is confirmed, and carries the expected bundle. gettxout does not name the
-spender, so the spending txid is an argument. This file does not build or
-broadcast a transaction. A failed query does not return an AnchorProof.
-
-A cold advance also needs the witness on that input. The script is the leaf
-item. The control block is the next item. An annex, if present, is last and
-starts with 0x50. A key-path check is separate and is not the default.
+A cold lock is minted here from txinwitness on the input that spends the seal.
+The proposal does not mint it. An annex starting with 0x50 is skipped. The
+script is the item before the control block.
 """
 
 from __future__ import annotations
@@ -22,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "human-witness"))
 
-from client_observer import AnchorProof, Reject, WitnessLock  # noqa: E402
+from client_observer import AnchorProof, Reject, WitnessLock, mint_lock  # noqa: E402
 
 
 class AnchorMiss(Exception):
@@ -84,12 +79,12 @@ def witness_lock(tx: dict, spent_txid: str, spent_vout: int, script: bytes | Non
         revealed, control = leaf_and_control(items)
         if revealed != script:
             raise AnchorMiss("witness script is not the revealed cold script")
-        return WitnessLock("script", revealed, control)
+        return mint_lock("script", revealed, control)
     if key_path:
         if len(items) != 1 or len(items[0]) not in (64, 65):
             raise AnchorMiss("key-path witness is not one Schnorr signature")
-        return WitnessLock("key", b"", b"")
-    return WitnessLock("unchecked", b"", b"")
+        return mint_lock("key", b"", b"")
+    return mint_lock("unchecked", b"", b"")
 
 
 def fetch_anchor(
