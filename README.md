@@ -23,45 +23,18 @@ Bitcoin supplies order and a one-time spend. It does not store the deed, the med
 - The unspent seal is the current controller. Pinning an agent to an outpoint is wrong. Key rotation closes the seal and opens another. The contract id stays.
 - A right moves only when its seal closes. A recovery spend is a close of that same outpoint, script-path, and it must anchor a bundle. A sweep with no bundle burns the right.
 - The confirmed spend wins. A later consignment cannot rewrite it.
+- The cold key can spend the control output at any time. There is no delay and no CSV window. Recovery is a race: whoever confirms first wins.
 
-Scripts in `btc-root/` are the seal profile. They are demonstrations, not a wallet.
-
-| Script | Status |
-| --- | --- |
-| `hwdeed_regtest.py` | In-process deed. Tagged hashes, witness threshold, one close. Signatures are stand-ins. |
-| `agent_seal_regtest.py` | Rotation, mint, cold-path race. No Taproot. |
-| `operator_cold_leaf.py` | Operator-only check that a rotation still commits to the genesis cold leaf. |
-| `agent_regtest_rpc.py` | Raw Taproot genesis, key-path rotation, script-path recovery. Dry-run builds transactions. A node has not accepted the script-path spend. |
-
-`seal-profile` was the first landing place for this layer. This directory is the copy that belongs to the whole.
+`btc-root/operator_cold_leaf.py` is the operator check that a rotation still commits to the genesis cold leaf. The in-process deed ledger, the agent ledger, and the Core regtest builder are not in this tree yet.
 
 ### 2. Personal chains
 
-Each hardware deed, copyright master, or agent is its own contract.
+Each hardware deed, copyright master, or agent is its own contract. `personal-chains/schema_encoder.py` encodes the three schemas, requires a BIP-340 witness threshold on witnessed transitions, rejects a second close of the current seal, and enforces the license and instance caps.
 
 - Global state is fixed at genesis: serial hash, master-file hash, or genesis weights.
 - Owned rights are assigned to seals. A hardware deed has one title. A copyright has a master right plus capped license rights. An agent has one control right and capped instance rights.
 - Transition metadata is not inherited. An inspection root, a license scope, or a version hash is attached to the close. It is not a field the next holder can edit in place.
 - The consignment is the history. Parties who were not given it cannot see the current controller. That is the publication limit, not a missing consensus layer.
-
-No consignment encoder is in this repository yet. The schemas below are the contract. The scripts do not emit them.
-
-```text
-HardwareTitleDeed_v1
-  global: asset_type, issuer_pk, serial_hash, genesis doc roots, witness set
-  owned:  title<1>
-  transition: inspection_root?, witnesses
-
-CopyrightMaster_v1
-  global: master_file_hash, authorship claim, license_cap
-  owned:  master<1>, license<license_cap>
-  transition: issuing a license closes master and reopens it
-
-SovereignAgent_v1
-  global: genesis_weights, training_root, instance_cap, cold_leaf
-  owned:  control<1>, instance<instance_cap>
-  transition: pure rotation omits witnesses; upgrade or mint requires them
-```
 
 ### 3. Human witness
 
@@ -70,7 +43,7 @@ The witness layer is a threshold over a genesis key set. It is not an identity d
 - Genesis names the keys and the threshold `m`.
 - A deed transfer, a copyright issuance, and an agent upgrade or instance mint need `k >= m` signatures from that set.
 - A pure agent key rotation does not. That act is the controller, not the human layer.
-- The cold key is not a witness. It is a script path on the control output. Public verifiers learn that leaf only when recovery spends it. The operator's wallet checks it on every rotation and stores the opening locally.
+- The cold key is not a witness. It is a script path on the control output, and it can spend at any time. Public verifiers learn that leaf only when recovery spends it. The operator's wallet checks it on every rotation and stores the opening locally.
 
 Nothing here enrolls a notary, routes a decentralized identifier, or ties a key to a person. A signature says the key signed. Who held the key is a record this repository does not keep.
 
