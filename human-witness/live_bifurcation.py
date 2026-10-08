@@ -6,8 +6,8 @@ that key's BIP-340 signature over the operation id. Edges that touched the
 hub's graph id are rewritten to that same x-only key, which is what weigh
 scores. The graph id is an index, not a second identity.
 
-The Bitcoin signature and the operation-id signature are different messages.
-The split is still the weight model. This script does not prove a rate.
+fetch_anchor requires HTN_ANCHOR_SECRET. The Bitcoin signature and the
+operation-id signature are different messages. This script does not prove a rate.
 The builder spend is not a Taproot script path, so the witness lock is ignored.
 """
 
@@ -27,7 +27,7 @@ from builder import build  # noqa: E402
 from client_observer import LocalView, Outcome, Proposal, consider  # noqa: E402
 from live_require import live_require  # noqa: E402
 from max_path import Edge, Neighborhood  # noqa: E402
-from regtest_anchor import fetch_anchor  # noqa: E402
+from regtest_anchor import fetch_anchor, load_auth  # noqa: E402
 from schema_encoder import PrivateKey, WitnessSet  # noqa: E402
 
 from bifurcation import barabasi, eigenvector, neighborhood  # noqa: E402
@@ -85,7 +85,9 @@ def run(args: argparse.Namespace) -> dict[str, float]:
         args.url, args.user, args.password,
         args.txid, args.vout, args.dest, args.amount, args.bundle, args.wif, args.mine_to,
     )
-    proof, _lock = fetch_anchor(args.url, args.user, args.password, args.txid, args.vout, spending, bundle)
+    proof, _lock = fetch_anchor(
+        args.url, args.user, args.password, args.txid, args.vout, spending, bundle, load_auth(),
+    )
     key = PrivateKey(wif_secret(args.wif))
     witnesses = WitnessSet(1, (key.sec(),))
     op = hashlib.sha256(b"live-op").digest()

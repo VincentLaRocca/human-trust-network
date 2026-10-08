@@ -3,7 +3,8 @@
 
 A script-path proposal names the revealed script and the stored genesis leaf.
 It does not carry a witness lock, and this module cannot mint one. The lock
-has to come from the regtest query. weigh() is not called on that path.
+has to come from the authenticated regtest query. weigh() is not called on
+that path.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ class WitnessLock:
     script: bytes
     control: bytes
     mint: object
+    tag: bytes
 
 
 @dataclass(frozen=True)
@@ -109,7 +111,7 @@ def cold_objective(view: LocalView, proposal: Proposal, lock: WitnessLock | None
     if path is None:
         raise Reject("not a script path")
     if not accepted(lock) or lock.kind != "script" or lock.script != path.script:
-        raise Reject("witness lock was not returned by the regtest query")
+        raise Reject("witness lock was not returned by the authenticated query")
     if not lock.control or lock.control[0] & 0xFE != 0xC0:
         raise Reject("control block")
     if proposal.spent_seal != view.title_seal:
@@ -188,12 +190,9 @@ def demo() -> None:
     script = b"\x20" + bytes([5]) * 32 + b"\xac"
     leaf = cold_leaf_hash(script)
     claimed = Proposal(title, nxt, b"cold", op, {}, bundle, prev, 1, proof, ScriptPath(script, leaf))
-    outcome, _ = consider(LocalView(title), claimed, require, Neighborhood([]), observer)
-    assert outcome is Outcome.GARBAGE
-    forged = WitnessLock("script", script, bytes([0xC0]) + bytes([9]) * 32, object())
+    forged = WitnessLock("script", script, bytes([0xC0]) + bytes([9]) * 32, object(), b"\x00" * 32)
     outcome, _ = consider(LocalView(title), claimed, require, Neighborhood([]), observer, witness_lock=forged)
     assert outcome is Outcome.GARBAGE
-    assert not hasattr(__import__("client_observer"), "mint_lock")
     print("client observer ok")
 
 

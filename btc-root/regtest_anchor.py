@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """Regtest query for a seal close.
 
-The witness lock is built only inside fetch_anchor, after the node response.
-There is no mint function to import. Parsing a witness stack does not mint.
+fetch_anchor does not run without a caller authenticator. The secret comes
+from the process, not from this file. The lock tag is an HMAC of the parsed
+witness under that secret. Parsing a stack does not mint a lock.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import sys
 import urllib.request
 from base64 import b64encode
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +26,25 @@ from client_observer import AnchorProof, Reject, WitnessLock  # noqa: E402
 
 class AnchorMiss(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class AnchorAuth:
+    secret: bytes
+
+    def __post_init__(self) -> None:
+        if len(self.secret) < 16:
+            raise AnchorMiss("anchor authenticator too short")
+
+    def __repr__(self) -> str:
+        return "AnchorAuth(secret=<redacted>)"
+
+
+def load_auth() -> AnchorAuth:
+    raw = os.environ.get("HTN_ANCHOR_SECRET", "")
+    if len(raw) < 16:
+        raise AnchorMiss("HTN_ANCHOR_SECRET is missing")
+    return AnchorAuth(raw.encode())
 
 
 def rpc(url: str, user: str, password: str, method: str, params: list):
@@ -88,9 +112,15 @@ def parsed_witness(tx: dict, spent_txid: str, spent_vout: int, script: bytes | N
 
 def _bind():
     token = object()
+    secret_box: dict[str, bytes] = {}
 
     def accepted(lock: WitnessLock | None) -> bool:
-        return lock is not None and lock.mint is token
+        secret = secret_box.get("s")
+        if lock is None or lock.mint is not token or not secret:
+            return False
+        body = lock.kind.encode() + lock.script + lock.control
+        expect = hmac.new(secret, body, hashlib.sha256).digest()
+        return hmac.compare_digest(expect, lock.tag)
 
     def fetch_anchor(
         url: str,
@@ -100,10 +130,14 @@ def _bind():
         spent_vout: int,
         spending_txid: str,
         bundle: bytes,
+        auth: AnchorAuth,
         min_conf: int = 1,
         script: bytes | None = None,
         key_path: bool = False,
     ) -> tuple[AnchorProof, WitnessLock]:
+        if not isinstance(auth, AnchorAuth):
+            raise AnchorMiss("anchor authenticator required")
+        secret_box["s"] = auth.secret
         if len(bundle) != 32 or len(bytes.fromhex(spent_txid)) != 32 or len(bytes.fromhex(spending_txid)) != 32:
             raise Reject("anchor id")
         if rpc(url, user, password, "gettxout", [spent_txid, spent_vout]) is not None:
@@ -114,6 +148,7 @@ def _bind():
         if not carries_bundle(tx, bundle):
             raise AnchorMiss("bundle not in the spending transaction")
         kind, revealed, control = parsed_witness(tx, spent_txid, spent_vout, script, key_path)
+        tag = hmac.new(auth.secret, kind.encode() + revealed + control, hashlib.sha256).digest()
         proof = AnchorProof(
             bytes.fromhex(spending_txid),
             0,
@@ -122,7 +157,7 @@ def _bind():
             bundle,
             True,
         )
-        return proof, WitnessLock(kind, revealed, control, token)
+        return proof, WitnessLock(kind, revealed, control, token, tag)
 
     return accepted, fetch_anchor
 
