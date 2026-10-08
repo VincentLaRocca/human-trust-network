@@ -65,7 +65,6 @@ def max_path(neigh: Neighborhood, src: bytes, policy: Policy) -> dict[bytes, flo
     """Strongest chain from src. T(P) = prod(w) * gamma^(len-1), hops <= H."""
     adj = neigh.out()
     best: dict[bytes, float] = {src: 1.0}
-    # (node, product so far, hops, path set)
     stack: list[tuple[bytes, float, int, frozenset[bytes]]] = [(src, 1.0, 0, frozenset([src]))]
     while stack:
         node, prod, hops, seen = stack.pop()
@@ -108,12 +107,12 @@ def demo() -> None:
     ok, score = accepts(honest, observer, friend, policy)
     assert ok and abs(score - 0.7) < 1e-9, score
     ok, score = accepts(honest, observer, other, policy)
-    # friend -> other is hop 2: 0.7 * 0.9 * gamma
-    assert ok and abs(score - 0.7 * 0.9 * policy.gamma) < 1e-9, score
-    attacked = Neighborhood(honest.edges + [Edge(hub, sybil, 0.8), Edge(sybil, bytes([9]), 0.95)])
+    # hop 2: 0.7 * 0.9 * gamma = 0.4095, under 0.45. Direct contacts pass; weak chains do not.
+    assert not ok and abs(score - 0.7 * 0.9 * policy.gamma) < 1e-9, score
+    attacked = Neighborhood(honest.edges + [Edge(hub, sybil, 0.8)])
     ok, score = accepts(attacked, observer, sybil, policy)
     # single chain through the hub: 0.8 * 0.8 * gamma = 0.416, under 0.45
-    assert not ok and score < policy.tau, score
+    assert not ok and abs(score - 0.8 * 0.8 * policy.gamma) < 1e-9, score
     loose = Policy(tau=0.25, hops=2)
     ok, score = accepts(attacked, observer, sybil, loose)
     assert ok, score
