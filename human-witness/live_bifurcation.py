@@ -8,6 +8,7 @@ scores. The graph id is an index, not a second identity.
 
 The Bitcoin signature and the operation-id signature are different messages.
 The split is still the weight model. This script does not prove a rate.
+The builder spend is not a Taproot script path, so the witness lock is ignored.
 """
 
 from __future__ import annotations
@@ -84,7 +85,7 @@ def run(args: argparse.Namespace) -> dict[str, float]:
         args.url, args.user, args.password,
         args.txid, args.vout, args.dest, args.amount, args.bundle, args.wif, args.mine_to,
     )
-    proof = fetch_anchor(args.url, args.user, args.password, args.txid, args.vout, spending, bundle)
+    proof, _lock = fetch_anchor(args.url, args.user, args.password, args.txid, args.vout, spending, bundle)
     key = PrivateKey(wif_secret(args.wif))
     witnesses = WitnessSet(1, (key.sec(),))
     op = hashlib.sha256(b"live-op").digest()
