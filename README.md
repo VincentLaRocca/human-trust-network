@@ -10,12 +10,15 @@ The first schema is a custody handoff. Copyright and agent identity are not in t
 
 ## Reference client (Android-first)
 
-The practical path that binds a human, their agent, and the economic layer lives on the phone:
+The practical path that binds a human, their agent, and the economic layer lives on the phone. How the phone performs and what its private protocols are remains the owner’s business; the public network only sees the signed events that leave the device.
 
-- The human registers the agent on their Android phone. The phone is the root of authority.
-- The agent process and the economic layer (Lightning hold invoices, settlements, any bonds) co-locate on the same device.
-- Human approval for spending and high-value actions goes through the Android keystore + biometric path. The agent never holds raw spending authority or the recovery key.
-- Scoped agent keys are delegated locally; revocation stays on-device.
+- Day 1 the human registers (operational key + recovery-key commitment) and, on the same Android phone, registers their AI agent by signing a scoped delegation.
+- The agent process and the economic layer (Lightning hold invoices, settlements, any bonds) co-locate on the same device. The agent acts on the human’s behalf.
+- Human keys are secured on the phone (Android Keystore / StrongBox). Holding them cryptographically on a remote node is possible but makes less sense for this design.
+- Any spend still requires the human’s signature, gated by the keystore + biometric path. The agent never holds raw spending authority or the recovery key.
+- Autonomous control can be granted inside limits. The agent can never control the whole wallet stack. Stop-loss: at most 5 % of the relevant balance in any one given sequence. Anything above that requires explicit human signature.
+- A phone’s unique internal ID is used only as a local uniqueness check so the same physical device is not registered twice. It is not part of the public identity, not published, and not used for authorization or recovery.
+- Scoped agent keys are delegated locally; revocation stays on-device. The human can always tighten, pause, or cut the agent off without rotating their own identity.
 - Public events published to the network contain only the signed records the phone chooses to emit.
 
 The protocol and public record stay open and chain-agnostic. The reference client that makes human–agent cohabitation useful is opinionated and Android-first (keystore, BiometricPrompt, local intents/services). Supporting both platforms would split the secure path; Android gives one coherent stack.
