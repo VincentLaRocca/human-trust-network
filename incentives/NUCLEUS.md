@@ -1,0 +1,97 @@
+# Nucleus (timestampable source of truth)
+
+> Reference spec supplied by the project owner, 2026-10-10. Saved verbatim for
+> reference; the code is checked against it (see "Nucleus alignment" in DECISIONS.md).
+
+The nucleus is the minimal, timestampable set of rules that let a human-authorized actor (person or agent under that person's policy) perform paid work, produce a portable signed record, and optionally attach a bonded vouch. Bitcoin is the bond and settlement asset. Lightning is the payment rail. Nostr keys plus OpenTimestamps are the record. There is no native token.
+
+Public events contain only hashes and job IDs. Names, addresses, packet contents, or other client data never appear in public events.
+
+## 1. Paid work
+
+Couriers, attesters, and witnesses earn sats for completed, signed jobs (handoffs, sealings, verifications, or other defined attestations).
+
+Payment:
+
+- Same-day jobs (within practical Lightning hold limits, roughly up to one day): Lightning hold invoice. The recipient generates the payment secret and gives its hash to the worker. The worker creates the hold invoice. On delivery the recipient's signed receipt reveals the secret; the worker settles.
+- Longer jobs: client locks funds closer to expected delivery (fresh hold invoice near completion) or uses on-chain escrow. The job-type rules state which jobs may use hold invoices.
+
+Fee split (placeholders): Worker [X]% / Network [Y]% / Voucher [Z]% — voucher share released only after the dispute window closes and the vouch is unchallenged.
+
+Completion and dispute events are signed and published by the counterparty (client or recipient), not by the worker.
+
+## 2. Bonded vouching
+
+A vouch is an optional higher-stakes attestation, required only for jobs or counterparties that demand elevated assurance.
+
+- Dispute window: [D] after the job event is published. A dispute must be filed and resolved inside this window.
+- Bond timelock: [T] (T > D). Voucher reclaims via the timelock path only if no valid dispute path is exercised before T.
+- Bond: [amount] sats (min [min], max per vouch [max]).
+- Paths: 2-of-3 (client, voucher, arbiter) for a proven bad vouch; voucher alone after [T].
+- Forfeiture destination is not enforced by the script (no covenants). The arbiter enforces "forfeited sats go to the harmed client" by signing only a transaction that pays the client. Arbiter + voucher could otherwise redirect; arbiter + client could take the full amount. The rule is only as strong as the arbiter's conduct and the recusal rule.
+- Early arbiter: the Founder. For any dispute in which the Founder is a party, the backup arbiter ([backup arbiter identity or role]) acts. Recusal is mandatory. The backup arbiter must be able to sign before T.
+- Default if arbiter is silent: if no valid 2-of-3 spend occurs before T, the voucher reclaims via the timelock path.
+- Clean vouches earn [Z]% after the window closes.
+- Active vouches per key capped at [cap]. Weight increases with long clean history.
+
+## 3. Dispute and arbiter procedure
+
+A dispute is filed by publishing a signed Nostr event referencing the job ID and stating the claim, within D. The arbiter decision event must also be published within D.
+
+Evidence: the filer includes or references signed receipts, hashes, and additional signed statements. The arbiter may request further signed material.
+
+Resolution: the arbiter publishes a signed decision event. If the vouch was bad, the arbiter co-signs (with the appropriate second party) the Taproot spend paying the harmed client. If the vouch stands, no spend occurs and the voucher later reclaims via the timelock path.
+
+If neither primary nor backup arbiter produces a valid spend before T, the voucher reclaims. The arbiter identity, backup arbiter, backup deadline, and decision-event format are part of this nucleus and timestamped with it.
+
+## 4. Job and event schemas (minimal)
+
+Public events contain only: job ID, content hash(es), references to prior events, signatures of required parties.
+
+Job ID = hash(agreed parameters + random nonce). The nonce is known only to the parties and never published. Same rule for any hash of low-variety data (addresses, names, dates). Photo and document content hashes may be used directly.
+
+Event types (kind numbers placeholder): job offer/acceptance; completion receipt (by recipient or client); dispute filing; arbiter decision; vouch attachment; key rotation/revocation/recovery; agent key delegation/revocation.
+
+Anyone can verify the chain of events for a job ID from the public record. OpenTimestamps anchors the events.
+
+## 5. Onboarding and key ceremony
+
+- Operator generates operational Nostr key and recovery key.
+- Recovery key is kept offline.
+- Operator publishes a timestamped commitment event containing the recovery-key public key (or its hash) and the operational key.
+- Each agent receives its own key. The operational key signs a delegation event naming the agent key and scope. An agent key can be revoked by a later signed event from the operational or recovery key without rotating the human's key.
+- Optional: first test job or minimal bond to establish the record.
+- The commitment event is the root of the operator's public history.
+
+## 6. Key rotation, revocation, and recovery
+
+Ordinary rotation: the operational key signs a timestamped rotation naming the new key. A thief holding only the operational key can sign such a rotation.
+
+A rotation is never final against the recovery key. The recovery key can override any rotation at any time.
+
+Revocation: only the recovery key can name a key compromised. The revocation states a "compromised since" time. Events signed by that key from that time onward, and by any key it rotated to after that time, may be disputed and excluded from scoring.
+
+All such events are public.
+
+## 7. Reputation
+
+Score is a public, deterministic function of public events (completed jobs, clean vouches, disputes lost, etc.). Events from a key's compromised window (per Section 6) are excluded. Anyone can recompute it. Used for weighting and priority; not a data product for sale.
+
+## 8. Failure modes
+
+- Lost operational key: recovery key rotates or revokes.
+- Stolen operational key: recovery key revokes with a "compromised since" time; events from that time onward (including by any key it rotated to) may be disputed and excluded; earlier history remains unless separately challenged.
+- Lightning hold expires before delivery: payment does not release; parties renegotiate or use escrow.
+- Arbiter silent until T: voucher reclaims (script default). Backup arbiter must act before T if stepping in.
+- Dispute after window: bond reclaimable by voucher; no forfeiture path remains.
+- Founder is a party: backup arbiter decides.
+
+## 9. Sequence and single-operator reality
+
+Now: paid jobs (hold invoices for same-day) + counterparty-published signed records. Founder is the only live operator and the early arbiter (with recusal).
+
+Once a small set of reliable operators exists: bonded vouching under the Taproot rules above.
+
+After the network outgrows single-operator coordination: governance weighted by completed work and clean vouch record.
+
+All numeric placeholders, script details, event kind numbers, arbiter identities, nonce rules, agent-delegation format, and the scoring function are set and timestamped before the corresponding mechanism is relied upon. The nucleus is complete when those values are filled and the document is timestamped.
