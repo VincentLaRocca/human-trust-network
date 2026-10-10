@@ -1,0 +1,12 @@
+# Secrets: keys are generated at runtime and never committed.
+.keys/
+# Local event store, timestamp proofs, private salts.
+data/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# Downloaded Bitcoin Core / LND binaries and regtest node data.
+tools/
+# Recovery keys are generated here, then moved offline.
+.recovery/
