@@ -1,0 +1,3 @@
+# Timestamped documents must keep their exact bytes (no line-ending conversion).
+NUCLEUS.txt -text
+*.ots binary

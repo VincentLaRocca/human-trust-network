@@ -1,0 +1,49 @@
+# Human Trust Network - prototype parameters.
+#
+# TEST DEFAULTS ONLY - these are placeholders, not policy. The Founding
+# Blueprint sets the real numbers. Every tunable value lives in this one file.
+
+[network]
+bitcoin = "regtest"            # only "regtest" or "signet" are accepted
+
+[disputes]
+window_seconds = 604800        # D = 7 days (event-time rules)
+window_blocks = 1008           # D on regtest, compressed to blocks (~7 days)
+
+[bond]
+timelock_blocks = 2016         # T ~ 14 days; code enforces T > D
+min_sats = 10000
+max_sats = 1000000
+
+[vouching]
+max_active_per_key = 5
+
+[fees]                         # percent; must add up to 100
+worker = 85
+network = 10
+voucher = 5
+# How the network and voucher shares are paid (DECISIONS #35):
+#   "lightning" - each share is a separate Lightning payment once it is due
+#   "sweep"     - network shares accumulate and are swept on-chain to sweep_address
+# Voucher shares are always withheld until the dispute window closes.
+payout = "lightning"
+sweep_address = ""             # regtest/signet address; required for "sweep"
+unvouched_share = "worker"     # who keeps the voucher share when nobody vouched: worker | network
+
+[lightning]
+max_hold_seconds = 21600       # 6 hours
+
+[arbiters]
+# Hex Nostr public keys. Empty = not set (dispute resolutions are rejected).
+founder = ""
+backup = ""
+
+[timestamps]
+# "local-test": offline fake calendar, proofs never leave this machine.
+# "public": send event hashes to public OpenTimestamps calendars.
+mode = "local-test"
+
+[scoring]                      # see SCORING.md (DECISIONS #11)
+clean_completion = 1           # per completed job with no upheld or pending dispute
+clean_vouch = 2                # per cleared vouch whose bond is live on-chain (#43)
+lost_dispute = -5              # per upheld dispute against you (as worker or voucher)
