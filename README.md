@@ -8,6 +8,18 @@ This is not [The Gem](https://github.com/VincentLaRocca/The-Gem). The Gem is a d
 
 The first schema is a custody handoff. Copyright and agent identity are not in the encoder.
 
+## Reference client (Android-first)
+
+The practical path that binds a human, their agent, and the economic layer lives on the phone:
+
+- The human registers the agent on their Android phone. The phone is the root of authority.
+- The agent process and the economic layer (Lightning hold invoices, settlements, any bonds) co-locate on the same device.
+- Human approval for spending and high-value actions goes through the Android keystore + biometric path. The agent never holds raw spending authority or the recovery key.
+- Scoped agent keys are delegated locally; revocation stays on-device.
+- Public events published to the network contain only the signed records the phone chooses to emit.
+
+The protocol and public record stay open and chain-agnostic. The reference client that makes human–agent cohabitation useful is opinionated and Android-first (keystore, BiometricPrompt, local intents/services). Supporting both platforms would split the secure path; Android gives one coherent stack.
+
 ## What is on main
 
 `personal-chains/schema_encoder.py` at `029f51b` is a custody handoff, not the earlier sketch.
