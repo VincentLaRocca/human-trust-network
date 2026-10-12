@@ -8,6 +8,8 @@ This is not [The Gem](https://github.com/VincentLaRocca/The-Gem). The Gem is a d
 
 The first schema is a custody handoff. Copyright and agent identity are not in the encoder.
 
+See [WHITEPAPER.md](WHITEPAPER.md) for the current high-level description.
+
 ## Reference client (Android-first)
 
 The practical path that binds a human, their agent, and the economic layer lives on the phone. How the phone performs and what its private protocols are remains the owner’s business; the public network only sees the signed events that leave the device.
